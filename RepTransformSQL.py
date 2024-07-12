@@ -3,6 +3,21 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 import base64
+import mysql.connector
+from sqlalchemy import create_engine
+
+# Function to upload DataFrame to Amazon MySQL
+def upload_to_aws_mysql(df, user, host, password, port, database, table_name):
+    try:
+        # Create the database engine
+        engine = create_engine(f'mysql+mysqlconnector://{user}:{password}@{host}:{port}/{database}')
+        
+        # Write the DataFrame to the MySQL table
+        df.to_sql(name=table_name, con=engine, if_exists='replace', index=False)
+        st.success("Data uploaded successfully to Amazon MySQL!")
+
+    except Exception as e:
+        st.error(f"Error while connecting to MySQL: {e}")
 
 def to_excel(df_bino, df_else):
     output = BytesIO()
@@ -53,6 +68,8 @@ def df_stats(df, df_p, df_s):
     st.write('')
     st.write('**Final Dataframe:**')
     st.dataframe(df)
+
+# Streamlit app
 st.title('Rep Sell Out & Stock on Hand')
 
 option = st.selectbox("Select the type of report:", ["Weekly Report", "Monthly Report"])
@@ -199,26 +216,45 @@ if option == "Weekly Report":
         # Calculate the Amount
         final_df['Amount'] = final_df['Sell Out'] * final_df['Dealer Price']
 
-        # Don't change these headings. Rather change the ones above
-        final_df = final_df[['365 Code', 'Product Description', 'Category', 'Sub-Cat', 'Rep', 'Week Ending', 'Retailer', 'Week No.', 'Stock on Hand', 'Sell Out', 'Dealer Price', 'Amount']]
         final_df_p = final_df[['365 Code', 'Product Description', 'Sell Out', 'Amount']]
         final_df_s = final_df[['Retailer', 'Sell Out', 'Amount']]
 
-        # Show final df
+        # Show combined final df stats
         df_stats(final_df, final_df_p, final_df_s)
-
+        
         # Split the final DataFrame
         df_bino = final_df[final_df['Category'] == 'Bino']
         df_else = final_df[final_df['Category'] != 'Bino']
 
+        # Add Week Ending to the DataFrame
+        df_bino['Week Ending'] = Date_End
+        df_else['Week Ending'] = Date_End
+
+        # Reorder columns to match the weekly report
+        df_bino = df_bino[['365 Code', 'Product Description', 'Category', 'Sub-Cat', 'Rep', 'Week Ending', 'Retailer', 'Stock on Hand', 'Sell Out', 'Dealer Price', 'Amount']]
+        df_else = df_else[['365 Code', 'Product Description', 'Category', 'Sub-Cat', 'Rep', 'Week Ending', 'Retailer', 'Stock on Hand', 'Sell Out', 'Dealer Price', 'Amount']]
+
+        # Provide the download link for the weekly report
         st.markdown(get_table_download_link(df_bino, df_else, Date_End, "Weekly"), unsafe_allow_html=True)
+
+        # MySQL connection details
+        user = 'tst_acorn'
+        host = '13.244.79.93'
+        password = 'tst_acorn123'
+        port = '63036'
+        database = 'tst_acorn'
+        table_name = 'weekly_report'
+
+        if st.button('Upload to SQL'):
+            upload_to_aws_mysql(final_df, user, host, password, port, database, table_name)
 
 elif option == "Monthly Report":
     Date_End = st.date_input("Month ending: ")
     uploaded_files = st.file_uploader("Choose Excel files", type="xlsx", accept_multiple_files=True)
+    uploaded_pricelist = st.file_uploader("Upload Pricelist", type="xlsx")
     submit_button = st.button("Submit Monthly Report")
 
-    if submit_button and uploaded_files:
+    if submit_button and uploaded_files and uploaded_pricelist:
         dfs_bino = []
         dfs_else = []
 
@@ -247,6 +283,15 @@ elif option == "Monthly Report":
             df_bino['Sub-Cat'] = df_bino['Sub-Cat'].fillna(" ")
             df_else['Sub-Cat'] = df_else['Sub-Cat'].fillna(" ")
 
+            # Merge with the pricelist before aggregation
+            pricelist = pd.read_excel(uploaded_pricelist, sheet_name='Master Sheet', header=1)
+            df_bino = df_bino.merge(pricelist[['Item number', "Dealer July'24"]], left_on='365 Code', right_on='Item number', how='left')
+            df_else = df_else.merge(pricelist[['Item number', "Dealer July'24"]], left_on='365 Code', right_on='Item number', how='left')
+
+            # Rename columns
+            df_bino = df_bino.rename(columns={"Dealer July'24": 'Dealer Price'})
+            df_else = df_else.rename(columns={"Dealer July'24": 'Dealer Price'})
+
             # Aggregate Sell Out and keep the latest SOH and Dealer Price for each product and retailer
             df_bino = df_bino.groupby(['365 Code', 'Product Description', 'Category', 'Sub-Cat', 'Rep', 'Retailer']).agg(
                 {'Sell Out': 'sum', 'Stock on Hand': 'last', 'Dealer Price': 'last'}).reset_index()
@@ -259,6 +304,23 @@ elif option == "Monthly Report":
 
             # Combine the Bino and Everything Else DataFrames for overall statistics
             final_df = pd.concat([df_bino, df_else], ignore_index=True)
+
+            # Identify products not on the pricelist
+            products_not_on_pricelist = final_df[final_df['Dealer Price'].isna()][['365 Code', 'Product Description', 'Stock on Hand', 'Sell Out']].drop_duplicates()
+            products_not_on_pricelist_summary = products_not_on_pricelist.groupby(['365 Code', 'Product Description']).agg({'Stock on Hand': 'sum', 'Sell Out': 'sum'}).reset_index()
+            products_not_on_pricelist_summary = products_not_on_pricelist_summary[(products_not_on_pricelist_summary['Stock on Hand'] > 0) | (products_not_on_pricelist_summary['Sell Out'] > 0)]
+            st.write("**Products not on the pricelist that have SOH or Sell Out:**")
+            st.table(products_not_on_pricelist_summary)
+
+            # Identify products without a price
+            products_without_price = final_df[final_df['Dealer Price'].apply(lambda x: isinstance(x, str))][['365 Code', 'Product Description', 'Stock on Hand', 'Sell Out']].drop_duplicates()
+            products_without_price_summary = products_without_price.groupby(['365 Code', 'Product Description']).agg({'Stock on Hand': 'sum', 'Sell Out': 'sum'}).reset_index()
+            products_without_price_summary = products_without_price_summary[(products_without_price_summary['Stock on Hand'] > 0) | (products_without_price_summary['Sell Out'] > 0)]
+            st.write("**Products without a price that have SOH or Sell Out:**")
+            st.table(products_without_price_summary)
+
+            # Convert Dealer Price to numeric, setting errors='coerce' to handle non-numeric values
+            final_df['Dealer Price'] = pd.to_numeric(final_df['Dealer Price'], errors='coerce')
 
             # Calculate the Amount
             final_df['Amount'] = final_df['Sell Out'] * final_df['Dealer Price']
@@ -279,9 +341,6 @@ elif option == "Monthly Report":
 
             # Provide the download link for the monthly report
             st.markdown(get_table_download_link(df_bino, df_else, Date_End, "Monthly"), unsafe_allow_html=True)
-        else:
-            st.write("Please ensure all uploaded files contain 'Bino' and 'Everything Else' sheets.")
-
 
 else:
     st.write("No report type selected")
