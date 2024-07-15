@@ -3,21 +3,7 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 import base64
-import mysql.connector
-from sqlalchemy import create_engine
-
-# Function to upload DataFrame to Amazon MySQL
-def upload_to_aws_mysql(df, user, host, password, port, database, table_name):
-    try:
-        # Create the database engine
-        engine = create_engine(f'mysql+mysqlconnector://{user}:{password}@{host}:{port}/{database}')
-        
-        # Write the DataFrame to the MySQL table
-        df.to_sql(name=table_name, con=engine, if_exists='replace', index=False)
-        st.success("Data uploaded successfully to Amazon MySQL!")
-
-    except Exception as e:
-        st.error(f"Error while connecting to MySQL: {e}")
+from sqlalchemy import create_engine, text
 
 def to_excel(df_bino, df_else):
     output = BytesIO()
@@ -37,6 +23,26 @@ def get_table_download_link(df_bino, df_else, date_end, report_type, filename="t
     formatted_date = date_end.strftime('%Y-%m-%d')
     formatted_filename = f"{formatted_date}_{report_type}_{filename}"
     return f'<a href="data:application/octet-stream;base64,{b64}" download="{formatted_filename}">Download Excel file</a>'
+
+def replace_week_ending_data(df, engine):
+    week_ending_dates = df['Week Ending'].unique()
+    table_name = 'fact_repsellout'
+    database = 'tst_acorn'
+    
+    with engine.connect() as connection:
+        for date in week_ending_dates:
+            # Check if the 'Week Ending' date exists
+            result = connection.execute(text(f"SELECT COUNT(*) FROM {table_name} WHERE `Week Ending` = :date"), {'date': date})
+            count = result.scalar()
+            
+            if count > 0:
+                # Delete rows with the same 'Week Ending' date
+                connection.execute(text(f"DELETE FROM {table_name} WHERE `Week Ending` = :date"), {'date': date})
+                print(f"Deleted {count} rows with Week Ending {date} from {table_name}")
+
+    # Insert the new data
+    df.to_sql(table_name, engine, if_exists='append', index=False)
+    st.success(f"DataFrame written to table {table_name} in the {database} database.")
 
 def df_stats(df, df_p, df_s):
     total_amount = df['Amount'].sum()
@@ -68,11 +74,9 @@ def df_stats(df, df_p, df_s):
     st.write('')
     st.write('**Final Dataframe:**')
     st.dataframe(df)
+st.title('Rep Sell Out & Stock on Hand SQL')
 
-# Streamlit app
-st.title('Rep Sell Out & Stock on Hand')
-
-option = st.selectbox("Select the type of report:", ["Weekly Report", "Monthly Report"])
+option = st.selectbox("Select the type of report:", ["Weekly Report", "Monthly Report", "Upload to SQL"])
 
 if option == "Weekly Report":
     Date_End = st.date_input("Week ending: ")
@@ -210,51 +214,38 @@ if option == "Weekly Report":
         st.write("**Products without a price that have SOH or Sell Out:**")
         st.table(products_without_price_summary)
 
+        # Identify duplicates
+        duplicates = final_df.duplicated(subset=['365 Code', 'Rep', 'Retailer', 'Week No.'], keep=False)
+        duplicates_summary = final_df[duplicates][['Rep', 'Retailer', 'Week No.']].drop_duplicates()
+        st.write("**This information is duplicated:**")
+        st.table(duplicates_summary)
+
         # Convert Dealer Price to numeric, setting errors='coerce' to handle non-numeric values
         final_df['Dealer Price'] = pd.to_numeric(final_df['Dealer Price'], errors='coerce')
 
         # Calculate the Amount
         final_df['Amount'] = final_df['Sell Out'] * final_df['Dealer Price']
 
+        # Don't change these headings. Rather change the ones above
+        final_df = final_df[['365 Code', 'Product Description', 'Category', 'Sub-Cat', 'Rep', 'Week Ending', 'Retailer', 'Week No.', 'Stock on Hand', 'Sell Out', 'Dealer Price', 'Amount']]
         final_df_p = final_df[['365 Code', 'Product Description', 'Sell Out', 'Amount']]
         final_df_s = final_df[['Retailer', 'Sell Out', 'Amount']]
 
-        # Show combined final df stats
+        # Show final df
         df_stats(final_df, final_df_p, final_df_s)
-        
+
         # Split the final DataFrame
         df_bino = final_df[final_df['Category'] == 'Bino']
         df_else = final_df[final_df['Category'] != 'Bino']
 
-        # Add Week Ending to the DataFrame
-        df_bino['Week Ending'] = Date_End
-        df_else['Week Ending'] = Date_End
-
-        # Reorder columns to match the weekly report
-        df_bino = df_bino[['365 Code', 'Product Description', 'Category', 'Sub-Cat', 'Rep', 'Week Ending', 'Retailer', 'Stock on Hand', 'Sell Out', 'Dealer Price', 'Amount']]
-        df_else = df_else[['365 Code', 'Product Description', 'Category', 'Sub-Cat', 'Rep', 'Week Ending', 'Retailer', 'Stock on Hand', 'Sell Out', 'Dealer Price', 'Amount']]
-
-        # Provide the download link for the weekly report
         st.markdown(get_table_download_link(df_bino, df_else, Date_End, "Weekly"), unsafe_allow_html=True)
-
-        # MySQL connection details
-        user = 'tst_acorn'
-        host = '13.244.79.93'
-        password = 'tst_acorn123'
-        port = '63036'
-        database = 'tst_acorn'
-        table_name = 'weekly_report'
-
-        if st.button('Upload to SQL'):
-            upload_to_aws_mysql(final_df, user, host, password, port, database, table_name)
 
 elif option == "Monthly Report":
     Date_End = st.date_input("Month ending: ")
     uploaded_files = st.file_uploader("Choose Excel files", type="xlsx", accept_multiple_files=True)
-    uploaded_pricelist = st.file_uploader("Upload Pricelist", type="xlsx")
     submit_button = st.button("Submit Monthly Report")
 
-    if submit_button and uploaded_files and uploaded_pricelist:
+    if submit_button and uploaded_files:
         dfs_bino = []
         dfs_else = []
 
@@ -283,15 +274,6 @@ elif option == "Monthly Report":
             df_bino['Sub-Cat'] = df_bino['Sub-Cat'].fillna(" ")
             df_else['Sub-Cat'] = df_else['Sub-Cat'].fillna(" ")
 
-            # Merge with the pricelist before aggregation
-            pricelist = pd.read_excel(uploaded_pricelist, sheet_name='Master Sheet', header=1)
-            df_bino = df_bino.merge(pricelist[['Item number', "Dealer July'24"]], left_on='365 Code', right_on='Item number', how='left')
-            df_else = df_else.merge(pricelist[['Item number', "Dealer July'24"]], left_on='365 Code', right_on='Item number', how='left')
-
-            # Rename columns
-            df_bino = df_bino.rename(columns={"Dealer July'24": 'Dealer Price'})
-            df_else = df_else.rename(columns={"Dealer July'24": 'Dealer Price'})
-
             # Aggregate Sell Out and keep the latest SOH and Dealer Price for each product and retailer
             df_bino = df_bino.groupby(['365 Code', 'Product Description', 'Category', 'Sub-Cat', 'Rep', 'Retailer']).agg(
                 {'Sell Out': 'sum', 'Stock on Hand': 'last', 'Dealer Price': 'last'}).reset_index()
@@ -304,23 +286,6 @@ elif option == "Monthly Report":
 
             # Combine the Bino and Everything Else DataFrames for overall statistics
             final_df = pd.concat([df_bino, df_else], ignore_index=True)
-
-            # Identify products not on the pricelist
-            products_not_on_pricelist = final_df[final_df['Dealer Price'].isna()][['365 Code', 'Product Description', 'Stock on Hand', 'Sell Out']].drop_duplicates()
-            products_not_on_pricelist_summary = products_not_on_pricelist.groupby(['365 Code', 'Product Description']).agg({'Stock on Hand': 'sum', 'Sell Out': 'sum'}).reset_index()
-            products_not_on_pricelist_summary = products_not_on_pricelist_summary[(products_not_on_pricelist_summary['Stock on Hand'] > 0) | (products_not_on_pricelist_summary['Sell Out'] > 0)]
-            st.write("**Products not on the pricelist that have SOH or Sell Out:**")
-            st.table(products_not_on_pricelist_summary)
-
-            # Identify products without a price
-            products_without_price = final_df[final_df['Dealer Price'].apply(lambda x: isinstance(x, str))][['365 Code', 'Product Description', 'Stock on Hand', 'Sell Out']].drop_duplicates()
-            products_without_price_summary = products_without_price.groupby(['365 Code', 'Product Description']).agg({'Stock on Hand': 'sum', 'Sell Out': 'sum'}).reset_index()
-            products_without_price_summary = products_without_price_summary[(products_without_price_summary['Stock on Hand'] > 0) | (products_without_price_summary['Sell Out'] > 0)]
-            st.write("**Products without a price that have SOH or Sell Out:**")
-            st.table(products_without_price_summary)
-
-            # Convert Dealer Price to numeric, setting errors='coerce' to handle non-numeric values
-            final_df['Dealer Price'] = pd.to_numeric(final_df['Dealer Price'], errors='coerce')
 
             # Calculate the Amount
             final_df['Amount'] = final_df['Sell Out'] * final_df['Dealer Price']
@@ -341,6 +306,78 @@ elif option == "Monthly Report":
 
             # Provide the download link for the monthly report
             st.markdown(get_table_download_link(df_bino, df_else, Date_End, "Monthly"), unsafe_allow_html=True)
+        else:
+            st.write("Please ensure all uploaded files contain 'Bino' and 'Everything Else' sheets.")
+
+
+elif option == 'Upload to SQL':
+    uploaded_files = st.file_uploader("Choose Excel files", type="xlsx", accept_multiple_files=True)
+    submit_button = st.button("Upload to SQL")
+
+    if submit_button and uploaded_files:
+        dfs_bino = []
+        dfs_else = []
+
+        for uploaded_file in uploaded_files:
+            all_sheets = pd.read_excel(uploaded_file, sheet_name=None)
+            df_bino = all_sheets.get('Bino')
+            df_else = all_sheets.get('Everything Else')
+
+            if df_bino is not None and df_else is not None:
+                # Add a column for the file date (extracting date from the filename or setting a default date)
+                df_bino['Date'] = df_bino['Week Ending']
+                df_else['Date'] = df_else['Week Ending']
+                dfs_bino.append(df_bino)
+                dfs_else.append(df_else)
+
+        if dfs_bino and dfs_else:
+            # Concatenate all Bino DataFrames and Everything Else DataFrames
+            df_bino = pd.concat(dfs_bino, ignore_index=True)
+            df_else = pd.concat(dfs_else, ignore_index=True)
+
+            # Sort by Date to ensure the latest Stock on Hand is used
+            df_bino = df_bino.sort_values(by='Date')
+            df_else = df_else.sort_values(by='Date')
+
+            # Fill empty 'Sub-Cat' with a space " "
+            df_bino['Sub-Cat'] = df_bino['Sub-Cat'].fillna(" ")
+            df_else['Sub-Cat'] = df_else['Sub-Cat'].fillna(" ")
+
+            # Calculate the Amount based on the aggregated Sell Out and Dealer Price
+            df_bino['Amount'] = df_bino['Sell Out'] * df_bino['Dealer Price']
+            df_else['Amount'] = df_else['Sell Out'] * df_else['Dealer Price']
+
+            # Combine the Bino and Everything Else DataFrames for overall statistics
+            final_df = pd.concat([df_bino, df_else], ignore_index=True)
+
+            # Clean the 'Sub-Cat' column
+            final_df['Sub-Cat'] = final_df['Sub-Cat'].apply(lambda x: None if pd.isna(x) or x.strip() == '' else x.strip())
+
+            # Convert Dealer Price to numeric, setting errors='coerce' to handle non-numeric values
+            final_df['Dealer Price'] = pd.to_numeric(final_df['Dealer Price'], errors='coerce')
+
+            # Calculate the Amount
+            final_df['Amount'] = final_df['Sell Out'] * final_df['Dealer Price']
+
+            # Don't change these headings. Rather change the ones above
+            final_df = final_df[['365 Code', 'Product Description', 'Category', 'Sub-Cat', 'Rep', 'Week Ending', 'Retailer', 'Week No.', 'Stock on Hand', 'Sell Out', 'Dealer Price', 'Amount']]
+
+            # MySQL connection details
+            user = 'tst_acorn'
+            host = '13.244.79.93'
+            password = 'tst_acorn123'
+            port = '63036'
+            database = 'tst_acorn'
+            table_name = 'fact_repsellout'
+
+            # Create the connection string
+            connection_string = f'mysql+mysqlconnector://{user}:{password}@{host}:{port}/{database}'
+
+            # Create an SQLAlchemy engine
+            engine = create_engine(connection_string)
+
+            replace_week_ending_data(final_df, engine)
+
 
 else:
     st.write("No report type selected")
