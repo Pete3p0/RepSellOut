@@ -4,7 +4,6 @@ import pandas as pd
 from io import BytesIO
 import base64
 from sqlalchemy import create_engine, text
-from datetime import datetime
 
 def to_excel(df_bino, df_else):
     output = BytesIO()
@@ -25,9 +24,21 @@ def get_table_download_link(df_bino, df_else, date_end, report_type, filename="t
     formatted_filename = f"{formatted_date}_{report_type}_{filename}"
     return f'<a href="data:application/octet-stream;base64,{b64}" download="{formatted_filename}">Download Excel file</a>'
 
-def append_data_to_sql(df, engine):
+def replace_week_ending_data(df, engine):
+    week_ending_dates = df['Week Ending'].unique()
     table_name = 'fact_repsellout'
     database = 'tst_acorn'
+    
+    with engine.connect() as connection:
+        for date in week_ending_dates:
+            # Check if the 'Week Ending' date exists
+            result = connection.execute(text(f"SELECT COUNT(*) FROM {table_name} WHERE `Week Ending` = :date"), {'date': date})
+            count = result.scalar()
+            
+            if count > 0:
+                # Delete rows with the same 'Week Ending' date
+                connection.execute(text(f"DELETE FROM {table_name} WHERE `Week Ending` = :date"), {'date': date})
+                print(f"Deleted {count} rows with Week Ending {date} from {table_name}")
 
     # Insert the new data
     df.to_sql(table_name, engine, if_exists='append', index=False)
@@ -63,7 +74,6 @@ def df_stats(df, df_p, df_s):
     st.write('')
     st.write('**Final Dataframe:**')
     st.dataframe(df)
-
 st.title('Rep Sell Out & Stock on Hand SQL')
 
 option = st.selectbox("Select the type of report:", ["Weekly Report", "Monthly Report", "Upload to SQL"])
@@ -169,8 +179,8 @@ if option == "Weekly Report":
         for sheet_name, df in all_sheets.items():
             transformed_df = transform_data(df)
             transformed_df['Rep'] = sheet_name  # Add the sheet name as the 'Rep' column
-            transformed_dfs.append(transformed_df)       
-            
+            transformed_dfs.append(transformed_df)
+
         # Concatenate all transformed DataFrames
         final_df = pd.concat(transformed_dfs, ignore_index=True)
 
@@ -184,18 +194,11 @@ if option == "Weekly Report":
         # Change the date to week ending
         final_df['Week Ending'] = Date_End
 
-        # Find the column with the word 'Dealer' in the pricelist
-        dealer_column = [col for col in pricelist.columns if 'Dealer' in col][0]
-
-        # Convert all product codes to UPPER
-        pricelist['Item number'] = pricelist['Item number'].str.upper()
-        final_df['365 Code'] = final_df['365 Code'].str.upper()
-
         # Merge with the pricelist
-        final_df = final_df.merge(pricelist[['Item number', dealer_column]], left_on='365 Code', right_on='Item number', how='left')
+        final_df = final_df.merge(pricelist[['Item number', "Dealer July'24"]], left_on='365 Code', right_on='Item number', how='left')
 
         # Rename columns
-        final_df = final_df.rename(columns={dealer_column: 'Dealer Price'})
+        final_df = final_df.rename(columns={"Dealer July'24": 'Dealer Price'})
 
         # Identify products not on the pricelist
         products_not_on_pricelist = final_df[final_df['Dealer Price'].isna()][['365 Code', 'Product Description', 'Stock on Hand', 'Sell Out']].drop_duplicates()
@@ -213,7 +216,7 @@ if option == "Weekly Report":
 
         # Identify duplicates
         duplicates = final_df.duplicated(subset=['365 Code', 'Rep', 'Retailer', 'Week No.'], keep=False)
-        duplicates_summary = final_df[duplicates][['365 Code', 'Rep', 'Retailer', 'Week No.']].drop_duplicates()
+        duplicates_summary = final_df[duplicates][['Rep', 'Retailer', 'Week No.']].drop_duplicates()
         st.write("**This information is duplicated:**")
         st.table(duplicates_summary)
 
@@ -223,11 +226,8 @@ if option == "Weekly Report":
         # Calculate the Amount
         final_df['Amount'] = final_df['Sell Out'] * final_df['Dealer Price']
 
-        # Add Date Created column with the current datetime
-        final_df['Date Created'] = datetime.now()
-
         # Don't change these headings. Rather change the ones above
-        final_df = final_df[['365 Code', 'Product Description', 'Category', 'Sub-Cat', 'Rep', 'Week Ending', 'Retailer', 'Week No.', 'Stock on Hand', 'Sell Out', 'Dealer Price', 'Amount', 'Date Created']]
+        final_df = final_df[['365 Code', 'Product Description', 'Category', 'Sub-Cat', 'Rep', 'Week Ending', 'Retailer', 'Week No.', 'Stock on Hand', 'Sell Out', 'Dealer Price', 'Amount']]
         final_df_p = final_df[['365 Code', 'Product Description', 'Sell Out', 'Amount']]
         final_df_s = final_df[['Retailer', 'Sell Out', 'Amount']]
 
@@ -290,9 +290,6 @@ elif option == "Monthly Report":
             # Calculate the Amount
             final_df['Amount'] = final_df['Sell Out'] * final_df['Dealer Price']
 
-            # Add Date Created column with the current datetime
-            final_df['Date Created'] = datetime.now()
-
             final_df_p = final_df[['365 Code', 'Product Description', 'Sell Out', 'Amount']]
             final_df_s = final_df[['Retailer', 'Sell Out', 'Amount']]
 
@@ -304,8 +301,8 @@ elif option == "Monthly Report":
             df_else['Month Ending'] = Date_End
 
             # Reorder columns to match the weekly report
-            df_bino = df_bino[['365 Code', 'Product Description', 'Category', 'Sub-Cat', 'Rep', 'Month Ending', 'Retailer', 'Stock on Hand', 'Sell Out', 'Dealer Price', 'Amount', 'Date Created']]
-            df_else = df_else[['365 Code', 'Product Description', 'Category', 'Sub-Cat', 'Rep', 'Month Ending', 'Retailer', 'Stock on Hand', 'Sell Out', 'Dealer Price', 'Amount', 'Date Created']]
+            df_bino = df_bino[['365 Code', 'Product Description', 'Category', 'Sub-Cat', 'Rep', 'Month Ending', 'Retailer', 'Stock on Hand', 'Sell Out', 'Dealer Price', 'Amount']]
+            df_else = df_else[['365 Code', 'Product Description', 'Category', 'Sub-Cat', 'Rep', 'Month Ending', 'Retailer', 'Stock on Hand', 'Sell Out', 'Dealer Price', 'Amount']]
 
             # Provide the download link for the monthly report
             st.markdown(get_table_download_link(df_bino, df_else, Date_End, "Monthly"), unsafe_allow_html=True)
@@ -362,11 +359,8 @@ elif option == 'Upload to SQL':
             # Calculate the Amount
             final_df['Amount'] = final_df['Sell Out'] * final_df['Dealer Price']
 
-            # Add Date Created column with the current datetime
-            final_df['Date Created'] = datetime.now()
-
             # Don't change these headings. Rather change the ones above
-            final_df = final_df[['365 Code', 'Product Description', 'Category', 'Sub-Cat', 'Rep', 'Week Ending', 'Retailer', 'Week No.', 'Stock on Hand', 'Sell Out', 'Dealer Price', 'Amount', 'Date Created']]
+            final_df = final_df[['365 Code', 'Product Description', 'Category', 'Sub-Cat', 'Rep', 'Week Ending', 'Retailer', 'Week No.', 'Stock on Hand', 'Sell Out', 'Dealer Price', 'Amount']]
 
             # MySQL connection details
             user = 'tst_acorn'
@@ -382,12 +376,9 @@ elif option == 'Upload to SQL':
             # Create an SQLAlchemy engine
             engine = create_engine(connection_string)
 
-            # Append data to SQL
-            append_data_to_sql(final_df, engine)
+            replace_week_ending_data(final_df, engine)
 
 
 else:
     st.write("No report type selected")
-
-
 
