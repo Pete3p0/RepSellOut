@@ -5,6 +5,7 @@ from io import BytesIO
 import base64
 from sqlalchemy import create_engine, text
 from datetime import datetime
+import datetime as dt
 
 def to_excel(df_final):
     output = BytesIO()
@@ -65,6 +66,7 @@ if option == "Weekly Report":
 
     if brand == 'Lexar':
         Date_End = st.date_input("Week ending: ")
+        Date_Start = Date_End - dt.timedelta(days=6)
         WeekNumUse = st.number_input("Week to look at: ", min_value=0, max_value=9, step=1, format="%d")
         WeekNumUseStr = 'Week ' + str(int(WeekNumUse))
         st.write(f"The week we are looking at is: {WeekNumUseStr}")
@@ -166,19 +168,21 @@ if option == "Weekly Report":
 
             # Concatenate all transformed DataFrames
             final_df = pd.concat(all_transformed_dfs, ignore_index=True)
-
+            
             # Filter out retailers containing "unnamed"
             final_df = final_df[~final_df['Retailer'].str.contains("unnamed", case=False, na=False)]
             
             # Filter data to include only the selected week number and call it the new week number
             final_df = final_df[final_df['Week No.'] == WeekNumUseStr]
+            
             final_df['Week No.'] = WeekNumCallStr
-
+            
             # Change the date to week ending
             final_df['Week Ending'] = Date_End
-
+            
             # Read the pricelist
             pricelist = pd.read_excel(uploaded_pricelist)
+            pricelist = pricelist.rename(columns={'Dealer Excl' : 'Unit Price'})
 
             # Find the column with the word 'Dealer' in the pricelist
             # dealer_column = [col for col in pricelist.columns if 'Dealer' in col][0]
@@ -188,8 +192,8 @@ if option == "Weekly Report":
             final_df['AX code'] = final_df['AX code'].str.upper()
 
             # Merge with the pricelist
-            final_df = final_df.merge(pricelist[['No.', 'Unit Price']], left_on='AX code', right_on='No.', how='left')
-
+            final_df = final_df.merge(pricelist, left_on='AX code', right_on='No.', how='left')
+            
             # Rename columns
             final_df = final_df.rename(columns={'Unit Price': 'Dealer Price'})
 
@@ -199,7 +203,7 @@ if option == "Weekly Report":
             products_not_on_pricelist_summary = products_not_on_pricelist_summary[(products_not_on_pricelist_summary['Stock on Hand'] > 0) | (products_not_on_pricelist_summary['Sell Out'] > 0)]
             st.write("**Products not on the pricelist that have SOH or Sell Out:**")
             st.table(products_not_on_pricelist_summary)
-
+            
             # Identify products without a price
             products_without_price = final_df[final_df['Dealer Price'].apply(lambda x: isinstance(x, str))][['AX code', 'Product Description', 'Stock on Hand', 'Sell Out']].drop_duplicates()
             products_without_price_summary = products_without_price.groupby(['AX code', 'Product Description']).agg({'Stock on Hand': 'sum', 'Sell Out': 'sum'}).reset_index()
@@ -222,9 +226,14 @@ if option == "Weekly Report":
             # Add Date Created column with the current datetime
             final_df['Date Created'] = datetime.now()
 
+            # Rename columns
+            final_df
+            final_df = final_df.rename(columns={'AX code':'365 code'})
+            final_df = final_df.rename(columns={'Capacity':'Category'})
+
             # Don't change these headings. Rather change the ones above
-            final_df = final_df[['AX code', 'Product Description', 'Capacity', 'Rep', 'Week Ending', 'Retailer', 'Week No.', 'Stock on Hand', 'Sell Out', 'Dealer Price', 'Amount', 'Date Created']]
-            final_df_p = final_df[['AX code', 'Product Description', 'Sell Out', 'Amount']]
+            final_df = final_df[['365 code', 'Product Description', 'Category', 'Rep','Brand Code','Item Group','Item Category Code','Inventory Posting Group','Model Class', 'Model Name','Model Classification','Week Ending', 'Retailer', 'Week No.', 'Stock on Hand', 'Sell Out', 'Dealer Price', 'Amount', 'Date Created']]
+            final_df_p = final_df[['365 code', 'Product Description', 'Sell Out', 'Amount']]
             final_df_s = final_df[['Retailer', 'Sell Out', 'Amount']]
 
             # Show final df
@@ -235,6 +244,7 @@ if option == "Weekly Report":
 
     elif brand == 'Sony':
         Date_End = st.date_input("Week ending: ")
+        Date_Start = Date_End - dt.timedelta(days=6)
         WeekNumUse = st.number_input("Week to look at: ", min_value=0, max_value=9, step=1, format="%d")
         WeekNumUseStr = 'Week ' + str(int(WeekNumUse))
         st.write(f"The week we are looking at is: {WeekNumUseStr}")
@@ -351,6 +361,7 @@ if option == "Weekly Report":
 
             # Read the pricelist
             pricelist = pd.read_excel(uploaded_pricelist)
+            pricelist = pricelist.rename(columns={'Dealer Excl':'Unit Price'})
 
             # Find the column with the word 'Dealer' in the pricelist
             # dealer_column = [col for col in pricelist.columns if 'Dealer' in col][0]
@@ -360,8 +371,8 @@ if option == "Weekly Report":
             final_df['365 code'] = final_df['365 code'].str.upper()
 
             # Merge with the pricelist
-            final_df = final_df.merge(pricelist[['No.', 'Unit Price']], left_on='365 code', right_on='No.', how='left')
-
+            final_df = final_df.merge(pricelist, left_on='365 code', right_on='No.', how='left')
+            
             # Rename columns
             final_df = final_df.rename(columns={'Unit Price': 'Dealer Price'})
             
@@ -395,7 +406,7 @@ if option == "Weekly Report":
             final_df['Date Created'] = datetime.now()
 
             # Don't change these headings. Rather change the ones above
-            final_df = final_df[['365 code', 'Product Description', 'Category', 'Rep', 'Week Ending', 'Retailer', 'Week No.', 'Stock on Hand', 'Sell Out', 'Dealer Price', 'Amount', 'Date Created']]
+            final_df = final_df[['365 code', 'Product Description', 'Category', 'Rep','Brand Code','Item Group','Item Category Code','Inventory Posting Group','Model Class', 'Model Name','Model Classification','Week Ending', 'Retailer', 'Week No.', 'Stock on Hand', 'Sell Out', 'Dealer Price', 'Amount', 'Date Created']]
             final_df_p = final_df[['365 code', 'Product Description', 'Sell Out', 'Amount']]
             final_df_s = final_df[['Retailer', 'Sell Out', 'Amount']]
 
