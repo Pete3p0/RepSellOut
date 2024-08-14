@@ -153,7 +153,7 @@ if option == "Weekly Report":
                 df["Retailer"] = df["Retailer"].str.replace(r"\.*\d+", "", regex=True)
 
                 # Convert 'Date SOH was Collected' column to date type
-                df['Date SOH was Collected'] = pd.to_datetime(df['Date SOH was Collected']).dt.date
+                # df['Date SOH was Collected'] = pd.to_datetime(df['Date SOH was Collected']).dt.date
 
                 return df
 
@@ -179,6 +179,7 @@ if option == "Weekly Report":
             
             # Change the date to week ending
             final_df['Week Ending'] = Date_End
+            final_df['Week Starting'] = Date_Start
             
             # Read the pricelist
             pricelist = pd.read_excel(uploaded_pricelist)
@@ -232,7 +233,7 @@ if option == "Weekly Report":
             final_df = final_df.rename(columns={'Capacity':'Category'})
 
             # Don't change these headings. Rather change the ones above
-            final_df = final_df[['365 code', 'Product Description', 'Category', 'Rep','Brand Code','Item Group','Item Category Code','Inventory Posting Group','Model Class', 'Model Name','Model Classification','Week Ending', 'Retailer', 'Week No.', 'Stock on Hand', 'Sell Out', 'Dealer Price', 'Amount', 'Date Created']]
+            final_df = final_df[['365 code', 'Product Description', 'Category', 'Rep','Brand Code','Item Group','Item Category Code','Inventory Posting Group','Model Class', 'Model Name','Model Classification','Week Starting','Week Ending', 'Retailer', 'Week No.', 'Stock on Hand', 'Sell Out', 'Dealer Price', 'Amount', 'Date Created']]
             final_df_p = final_df[['365 code', 'Product Description', 'Sell Out', 'Amount']]
             final_df_s = final_df[['Retailer', 'Sell Out', 'Amount']]
 
@@ -333,7 +334,7 @@ if option == "Weekly Report":
                 df["Retailer"] = df["Retailer"].str.replace(r"\.*\d+", "", regex=True)
 
                 # Convert 'Date SOH was Collected' column to date type
-                df['Date SOH was Collected'] = pd.to_datetime(df['Date SOH was Collected']).dt.date
+                # df['Date SOH was Collected'] = pd.to_datetime(df['Date SOH was Collected']).dt.date
 
                 return df
 
@@ -358,6 +359,7 @@ if option == "Weekly Report":
 
             # Change the date to week ending
             final_df['Week Ending'] = Date_End
+            final_df['Week Starting'] = Date_Start
 
             # Read the pricelist
             pricelist = pd.read_excel(uploaded_pricelist)
@@ -406,7 +408,7 @@ if option == "Weekly Report":
             final_df['Date Created'] = datetime.now()
 
             # Don't change these headings. Rather change the ones above
-            final_df = final_df[['365 code', 'Product Description', 'Category', 'Rep','Brand Code','Item Group','Item Category Code','Inventory Posting Group','Model Class', 'Model Name','Model Classification','Week Ending', 'Retailer', 'Week No.', 'Stock on Hand', 'Sell Out', 'Dealer Price', 'Amount', 'Date Created']]
+            final_df = final_df[['365 code', 'Product Description', 'Category', 'Rep','Brand Code','Item Group','Item Category Code','Inventory Posting Group','Model Class', 'Model Name','Model Classification','Week Starting','Week Ending', 'Retailer', 'Week No.', 'Stock on Hand', 'Sell Out', 'Dealer Price', 'Amount', 'Date Created']]
             final_df_p = final_df[['365 code', 'Product Description', 'Sell Out', 'Amount']]
             final_df_s = final_df[['Retailer', 'Sell Out', 'Amount']]
 
