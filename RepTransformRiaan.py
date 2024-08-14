@@ -228,7 +228,6 @@ if option == "Weekly Report":
             final_df['Date Created'] = datetime.now()
 
             # Rename columns
-            final_df
             final_df = final_df.rename(columns={'AX code':'365 code'})
             final_df = final_df.rename(columns={'Capacity':'Category'})
 
@@ -240,7 +239,7 @@ if option == "Weekly Report":
             # Show final df
             df_stats(final_df, final_df_p, final_df_s)
 
-            st.markdown(get_table_download_link(final_df, Date_End, "Weekly"), unsafe_allow_html=True)
+            st.markdown(get_table_download_link(final_df, Date_End, "Weekly_Lexar"), unsafe_allow_html=True)
         
 
     elif brand == 'Sony':
@@ -415,7 +414,7 @@ if option == "Weekly Report":
             # Show final df
             df_stats(final_df, final_df_p, final_df_s)
 
-            st.markdown(get_table_download_link(final_df, Date_End, "Weekly"), unsafe_allow_html=True)
+            st.markdown(get_table_download_link(final_df, Date_End, "Weekly_Sony"), unsafe_allow_html=True)
 
 
     else: 
