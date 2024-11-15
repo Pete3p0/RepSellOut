@@ -127,9 +127,10 @@ if option == "Weekly Report":
 
                 # Rename columns
                 df = filterdf.rename(columns={
-                    'Unnamed: 0 | AX code': 'AX code',
-                    'Unnamed: 1 | Product Description': 'Product Description',
-                    'Unnamed: 2 | Date SOH was Collected: | Capacity': 'Capacity',
+                    'Unnamed: 0 | Category': 'Category',
+                    'Unnamed: 1 | AX code': 'AX code',
+                    'Unnamed: 2 | Product Description': 'Product Description',
+                    'Unnamed: 3 | Date SOH was Collected: | Capacity': 'Capacity',
                     'Value': 'Stock on Hand'
                 })
 
