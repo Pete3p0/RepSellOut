@@ -185,12 +185,12 @@ if option == "Weekly Report":
             # Read the pricelist
             pricelist = pd.read_excel(uploaded_pricelist)
             pricelist = pricelist.rename(columns={'Dealer Excl' : 'Unit Price'})
-
+            
             # Find the column with the word 'Dealer' in the pricelist
             # dealer_column = [col for col in pricelist.columns if 'Dealer' in col][0]
 
             # Convert all product codes to UPPER
-            pricelist['No.'] = pricelist['No.'].str.upper()
+            # pricelist['No.'] = pricelist['No.'].str.upper()
             final_df['AX code'] = final_df['AX code'].str.upper()
 
             # Merge with the pricelist
